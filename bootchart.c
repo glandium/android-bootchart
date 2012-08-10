@@ -181,26 +181,20 @@ open_log_file(int*  plogfd, const char*  logfile)
     }
 }
 
+struct timeval start_time;
+
 static void
 do_log_uptime(FileBuff  log)
 {
     char  buff[65];
-    int   fd, ret, len;
-
-    fd = open("/proc/uptime",O_RDONLY);
-    if (fd >= 0) {
-        int  ret;
-        ret = unix_read(fd, buff, 64);
-        close(fd);
-        buff[64] = 0;
-        if (ret >= 0) {
-            long long  jiffies = 100LL*strtod(buff,NULL);
-            int        len;
-            snprintf(buff,sizeof(buff),"%lld\n",jiffies);
-            len = strlen(buff);
-            file_buff_write(log, buff, len);
-        }
-    }
+    struct timeval now;
+    gettimeofday(&now, 0);
+    long long jiffies = (now.tv_sec * 100LL + now.tv_usec / 10000) -
+                        (start_time.tv_sec * 100LL + start_time.tv_usec / 10000);
+    int        len;
+    snprintf(buff,sizeof(buff),"%lld\n",jiffies);
+    len = strlen(buff);
+    file_buff_write(log, buff, len);
 }
 
 static void
@@ -296,40 +290,10 @@ static FileBuffRec  log_procs[1];
 static FileBuffRec  log_disks[1];
 
 /* called to setup bootcharting */
-int   bootchart_init( void )
+void  bootchart_init( void )
 {
     int  ret;
     char buff[4];
-    int  timeout = 0, count = 0;
-
-    buff[0] = 0;
-    proc_read( LOG_STARTFILE, buff, sizeof(buff) );
-    if (buff[0] != 0) {
-        timeout = atoi(buff);
-    }
-    else {
-        /* when running with emulator, androidboot.bootchart=<timeout>
-         * might be passed by as kernel parameters to specify the bootchart
-         * timeout. this is useful when using -wipe-data since the /data
-         * partition is fresh
-         */
-        char  cmdline[1024];
-        char* s;
-#define  KERNEL_OPTION  "androidboot.bootchart="
-        proc_read( "/proc/cmdline", cmdline, sizeof(cmdline) );
-        s = strstr(cmdline, KERNEL_OPTION);
-        if (s) {
-            s      += sizeof(KERNEL_OPTION)-1;
-            timeout = atoi(s);
-        }
-    }
-    if (timeout == 0)
-        return 0;
-
-    if (timeout > BOOTCHART_MAX_TIME_SEC)
-        timeout = BOOTCHART_MAX_TIME_SEC;
-
-    count = (timeout*1000 + BOOTCHART_POLLING_MS-1)/BOOTCHART_POLLING_MS;
 
     do {ret=mkdir(LOG_ROOT,0755);}while (ret < 0 && errno == EINTR);
 
@@ -347,7 +311,7 @@ int   bootchart_init( void )
     }
 
     log_header();
-    return count;
+    gettimeofday(&start_time, 0);
 }
 
 /* called each time you want to perform a bootchart sampling op */
